@@ -7,6 +7,8 @@ import { ExportModal } from './components/ExportModal'
 import { PresentationModal } from './components/PresentationModal'
 import { AuthModal } from './components/AuthModal'
 import { DescriptorManagerModal } from './components/DescriptorManagerModal'
+import { ToastContainer, ToastMessage } from './components/Toast'
+import { useHistory } from './lib/history'
 import {
   Descriptor,
   Annotation,
@@ -29,7 +31,6 @@ import { analyzeAnnotationContent } from './lib/aiHelper'
 
 // Initial mock data matching README example for rich first impression
 const createInitialSampleDescriptor = (user: UserProfile): Descriptor => {
-  // SVG Mock Wireframe Data URL
   const svgWireframe = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" fill="%230f131a">
     <rect width="1200" height="800" fill="%230c0e14"/>
     <rect x="50" y="40" width="1100" height="70" rx="8" fill="%23171c28" stroke="%232b354f" stroke-width="2"/>
@@ -152,10 +153,45 @@ const createInitialSampleDescriptor = (user: UserProfile): Descriptor => {
 
 export function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(getLocalUser)
-  const [descriptors, setDescriptors] = useState<Descriptor[]>([])
+  
+  // Undo/Redo state management with useHistory hook for Descriptors array
+  const {
+    state: descriptors,
+    set: setDescriptors,
+    undo: undoDescriptors,
+    redo: redoDescriptors,
+    reset: resetDescriptorsHistory,
+    canUndo,
+    canRedo
+  } = useHistory<Descriptor[]>([])
+
   const [activeDescriptorId, setActiveDescriptorId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<ViewTool>('select')
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+
+  // Theme state ('dark' or 'light')
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const savedTheme = localStorage.getItem('theme') as 'dark' | 'light'
+    if (savedTheme) return savedTheme
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+      ? 'light'
+      : 'dark'
+  })
+
+  // Toasts state
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+
+  const addToast = useCallback(
+    (type: 'success' | 'info' | 'error' | 'warning', title: string, message?: string) => {
+      const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+      setToasts(prev => [...prev, { id, type, title, message }])
+    },
+    []
+  )
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
 
   // Modals state
   const [isExportOpen, setIsExportOpen] = useState(false)
@@ -164,44 +200,54 @@ export function App() {
   const [isDescriptorsManagerOpen, setIsDescriptorsManagerOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // Initialize Descriptors
+  // Initialize Descriptors & apply theme attribute to root
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    addToast('info', 'Tema alterado', `Modo ${nextTheme === 'dark' ? 'Escuro' : 'Claro'} ativado.`)
+  }
+
   useEffect(() => {
     const user = getLocalUser()
     setCurrentUser(user)
 
     const saved = getLocalDescriptors()
     if (saved && saved.length > 0) {
-      setDescriptors(saved)
+      resetDescriptorsHistory(saved)
       setActiveDescriptorId(saved[0].id)
     } else {
       const initial = createInitialSampleDescriptor(user)
       saveLocalDescriptor(initial)
-      setDescriptors([initial])
+      resetDescriptorsHistory([initial])
       setActiveDescriptorId(initial.id)
     }
-  }, [])
+  }, [resetDescriptorsHistory])
 
   // Active descriptor object
   const currentDescriptor = descriptors.find(d => d.id === activeDescriptorId) || descriptors[0] || null
   const selectedAnnotation = currentDescriptor?.annotations.find(a => a.id === selectedAnnotationId) || null
 
-  // Auto sync function
+  // Auto sync function with localStorage & Supabase
   const syncDescriptor = useCallback(
-    async (updated: Descriptor) => {
-      // 1. Update React state
-      setDescriptors(prev => prev.map(d => (d.id === updated.id ? updated : d)))
+    async (updated: Descriptor, recordHistory = true) => {
+      if (recordHistory) {
+        setDescriptors(prev => prev.map(d => (d.id === updated.id ? updated : d)))
+      }
 
-      // 2. Save Local
       saveLocalDescriptor(updated)
 
-      // 3. Save Supabase if configured
       if (isSupabaseConfigured()) {
         setIsSyncing(true)
         await saveSupabaseDescriptor(updated, currentUser)
         setIsSyncing(false)
       }
     },
-    [currentUser]
+    [currentUser, setDescriptors]
   )
 
   // Create new annotation
@@ -211,7 +257,6 @@ export function App() {
     const count = currentDescriptor.annotations.length + 1
     const defaultTitle = `Nova Anotação A${count}`
 
-    // Analyze default AI
     const analysis = analyzeAnnotationContent(defaultTitle)
 
     const newAnnotation: Annotation = {
@@ -239,6 +284,7 @@ export function App() {
 
     syncDescriptor(updatedDescriptor)
     setSelectedAnnotationId(newAnnotation.id)
+    addToast('success', 'Anotação criada!', `Nova anotação A${count} adicionada.`)
   }
 
   // Update existing annotation
@@ -273,6 +319,20 @@ export function App() {
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null)
     }
+    addToast('info', 'Anotação removida')
+  }
+
+  // Import annotations
+  const handleImportAnnotations = (newAnnotations: Annotation[]) => {
+    if (!currentDescriptor) return
+
+    const updatedDescriptor = {
+      ...currentDescriptor,
+      annotations: [...currentDescriptor.annotations, ...newAnnotations],
+      updated_at: new Date().toISOString()
+    }
+
+    syncDescriptor(updatedDescriptor)
   }
 
   // Upload/Paste image to current or new descriptor
@@ -303,6 +363,7 @@ export function App() {
         }
 
         syncDescriptor(updatedDescriptor)
+        addToast('success', 'Imagem Carregada', `Imagem ${file.name} aplicada com sucesso!`)
       }
     }
     reader.readAsDataURL(file)
@@ -311,7 +372,11 @@ export function App() {
   // Create new Descriptor
   const handleCreateNewDescriptor = (title: string, file?: File) => {
     if (descriptors.length >= MAX_DESCRIPTORS_LIMIT) {
-      alert(`Limite de ${MAX_DESCRIPTORS_LIMIT} imagens por usuário atingido! Remova uma tela antiga primeiro.`)
+      addToast(
+        'warning',
+        'Limite de Imagens',
+        `Limite de ${MAX_DESCRIPTORS_LIMIT} imagens atingido! Remova uma tela antiga primeiro.`
+      )
       return
     }
 
@@ -337,13 +402,14 @@ export function App() {
 
       const saveRes = saveLocalDescriptor(newDesc)
       if (!saveRes.success) {
-        alert(saveRes.error)
+        addToast('error', 'Erro ao salvar', saveRes.error)
         return
       }
 
       setDescriptors(prev => [newDesc, ...prev])
       setActiveDescriptorId(newDesc.id)
       setSelectedAnnotationId(null)
+      addToast('success', 'Novo Descritivo Criado', `Descritivo "${title}" pronto para uso.`)
     }
 
     if (file) {
@@ -369,12 +435,14 @@ export function App() {
       setActiveDescriptorId(remaining[0]?.id || null)
       setSelectedAnnotationId(null)
     }
+    addToast('info', 'Descritivo Excluído')
   }
 
   // Handle user profile update
   const handleUpdateUser = (updatedUser: UserProfile) => {
     setCurrentUser(updatedUser)
     setLocalUser(updatedUser)
+    addToast('success', 'Perfil Atualizado')
   }
 
   // Fetch from Supabase when connected
@@ -386,10 +454,14 @@ export function App() {
       setActiveDescriptorId(list[0].id)
     }
     setIsSyncing(false)
+    addToast('success', 'Supabase Conectado', 'Anotações sincronizadas com a nuvem.')
   }
 
   return (
     <div className="app-container">
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
       {/* Top Navbar */}
       <Header
         currentDescriptor={currentDescriptor}
@@ -403,6 +475,12 @@ export function App() {
         onNewDescriptor={() => setIsDescriptorsManagerOpen(true)}
         currentUser={currentUser}
         isSyncing={isSyncing}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undoDescriptors}
+        onRedo={redoDescriptors}
       />
 
       {/* Main workspace */}
@@ -427,6 +505,11 @@ export function App() {
           onSelectAnnotation={setSelectedAnnotationId}
           onCreateAnnotation={handleCreateAnnotation}
           onUploadImage={handleUploadImage}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undoDescriptors}
+          onRedo={redoDescriptors}
+          theme={theme}
         />
 
         {/* Right Sidebar: Discussion & Details */}
@@ -447,6 +530,8 @@ export function App() {
         onClose={() => setIsExportOpen(false)}
         descriptor={currentDescriptor}
         currentUser={currentUser}
+        onImportAnnotations={handleImportAnnotations}
+        onShowToast={addToast}
       />
 
       <PresentationModal
@@ -478,4 +563,5 @@ export function App() {
     </div>
   )
 }
+
 export default App

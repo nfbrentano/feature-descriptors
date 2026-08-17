@@ -106,4 +106,5 @@ export interface UserProfile {
   avatar_url?: string
 }
 
-export type ViewTool = 'select' | 'bbox' | 'point' | 'polygon' | 'pan' | 'heatmap'
+export type ViewTool = 'select' | 'bbox' | 'point' | 'polygon' | 'pan' | 'heatmap' | 'measure'
+

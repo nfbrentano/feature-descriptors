@@ -10,16 +10,22 @@ import {
   Maximize2,
   Upload,
   Image as ImageIcon,
-  Flame
+  Flame,
+  Grid,
+  Ruler,
+  RotateCcw,
+  RotateCw,
+  Loader2,
+  Scale
 } from 'lucide-react'
 import {
   AnnotationType,
   BBoxCoords,
   PointCoords,
-  PolygonCoords,
   ViewTool,
   Descriptor
 } from '../types'
+import { drawCanvas, getRelativeCoords } from '../lib/canvasUtils'
 
 interface CanvasViewportProps {
   descriptor: Descriptor | null
@@ -29,6 +35,11 @@ interface CanvasViewportProps {
   onSelectAnnotation: (id: string | null) => void
   onCreateAnnotation: (type: AnnotationType, coords: any) => void
   onUploadImage: (file: File) => void
+  canUndo?: boolean
+  canRedo?: boolean
+  onUndo?: () => void
+  onRedo?: () => void
+  theme?: 'dark' | 'light'
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -38,7 +49,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   selectedAnnotationId,
   onSelectAnnotation,
   onCreateAnnotation,
-  onUploadImage
+  onUploadImage,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  theme = 'dark'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
@@ -50,6 +66,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const [isPanning, setIsPanning] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
+  // Grid & Measure Tool state
+  const [showGrid, setShowGrid] = useState(false)
+  const [measureStart, setMeasureStart] = useState<{ x: number; y: number } | null>(null)
+  const [measureEnd, setMeasureEnd] = useState<{ x: number; y: number } | null>(null)
+
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
@@ -57,26 +78,32 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const [polygonPoints, setPolygonPoints] = useState<Array<{ x: number; y: number }>>([])
   const [isDragOver, setIsDragOver] = useState(false)
 
-  // Image load
+  // Image loading state
+  const [imageLoading, setImageLoading] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0
   })
 
-  // Load image element
+  // Load image element safely
   useEffect(() => {
     if (!descriptor?.image?.url) {
       setImageLoaded(false)
+      setImageLoading(false)
       return
     }
+
+    setImageLoading(true)
     const img = new Image()
     img.src = descriptor.image.url
     img.onload = () => {
       imageRef.current = img
       setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight })
       setImageLoaded(true)
-      // Auto fit zoom
+      setImageLoading(false)
+
+      // Auto fit zoom on load
       if (containerRef.current) {
         const cw = containerRef.current.clientWidth - 80
         const ch = containerRef.current.clientHeight - 80
@@ -87,6 +114,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           y: (containerRef.current.clientHeight - img.naturalHeight * fitScale) / 2
         })
       }
+    }
+    img.onerror = () => {
+      setImageLoading(false)
+      setImageLoaded(false)
     }
   }, [descriptor?.image?.url])
 
@@ -109,28 +140,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     return () => window.removeEventListener('paste', handlePaste)
   }, [onUploadImage])
 
-  // Helper to convert screen coordinates to relative image coordinates (0..1)
-  const getRelativeCoords = useCallback(
-    (clientX: number, clientY: number) => {
-      if (!containerRef.current || !imageDimensions.width || !imageDimensions.height) return null
-      const rect = containerRef.current.getBoundingClientRect()
-      const mouseX = clientX - rect.left
-      const mouseY = clientY - rect.top
-
-      // Screen to Image coords
-      const imgX = (mouseX - pan.x) / zoom
-      const imgY = (mouseY - pan.y) / zoom
-
-      // Normalize to 0..1
-      const relX = Math.max(0, Math.min(1, imgX / imageDimensions.width))
-      const relY = Math.max(0, Math.min(1, imgY / imageDimensions.height))
-
-      return { x: relX, y: relY }
-    },
-    [pan, zoom, imageDimensions]
-  )
-
-  // Render Canvas
+  // Render Canvas with modular helper
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas || !containerRef.current) return
@@ -140,171 +150,26 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     canvas.width = containerRef.current.clientWidth
     canvas.height = containerRef.current.clientHeight
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    if (!imageLoaded || !imageRef.current) return
-
-    ctx.save()
-    ctx.translate(pan.x, pan.y)
-    ctx.scale(zoom, zoom)
-
-    // Draw background image
-    ctx.drawImage(imageRef.current, 0, 0, imageDimensions.width, imageDimensions.height)
-
-    // Draw Heatmap mode
-    if (activeTool === 'heatmap' && descriptor) {
-      ctx.save()
-      descriptor.annotations.forEach(ann => {
-        let cx = 0
-        let cy = 0
-        if (ann.type === 'bbox') {
-          const b = ann.coords as BBoxCoords
-          cx = (b.x + b.w / 2) * imageDimensions.width
-          cy = (b.y + b.h / 2) * imageDimensions.height
-        } else if (ann.type === 'point') {
-          const p = ann.coords as PointCoords
-          cx = p.x * imageDimensions.width
-          cy = p.y * imageDimensions.height
-        }
-        const radius = Math.max(imageDimensions.width, imageDimensions.height) * 0.15
-        const radGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, radius)
-        radGrad.addColorStop(0, 'rgba(239, 68, 68, 0.65)')
-        radGrad.addColorStop(0.5, 'rgba(245, 158, 11, 0.4)')
-        radGrad.addColorStop(1, 'rgba(59, 130, 246, 0)')
-        ctx.fillStyle = radGrad
-        ctx.beginPath()
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2)
-        ctx.fill()
-      })
-      ctx.restore()
-    }
-
-    // Draw existing annotations
-    if (descriptor?.annotations) {
-      descriptor.annotations.forEach((ann, idx) => {
-        const isSelected = ann.id === selectedAnnotationId
-        const isResolved = ann.status === 'resolved'
-        const labelNumber = `A${idx + 1}`
-
-        ctx.save()
-        ctx.lineWidth = isSelected ? 3 / zoom : 2 / zoom
-        ctx.strokeStyle = isSelected ? '#6366f1' : isResolved ? '#64748b' : '#38bdf8'
-        ctx.fillStyle = isSelected
-          ? 'rgba(99, 102, 241, 0.25)'
-          : isResolved
-          ? 'rgba(100, 116, 139, 0.15)'
-          : 'rgba(56, 189, 248, 0.15)'
-
-        if (ann.type === 'bbox') {
-          const b = ann.coords as BBoxCoords
-          const bx = b.x * imageDimensions.width
-          const by = b.y * imageDimensions.height
-          const bw = b.w * imageDimensions.width
-          const bh = b.h * imageDimensions.height
-
-          ctx.strokeRect(bx, by, bw, bh)
-          ctx.fillRect(bx, by, bw, bh)
-
-          // Tag badge label
-          ctx.fillStyle = isSelected ? '#6366f1' : '#0f172a'
-          ctx.beginPath()
-          ctx.roundRect(bx, by - 24 / zoom, 34 / zoom, 20 / zoom, 4 / zoom)
-          ctx.fill()
-          ctx.strokeStyle = '#38bdf8'
-          ctx.stroke()
-
-          ctx.font = `bold ${Math.max(11 / zoom, 9)}px sans-serif`
-          ctx.fillStyle = '#ffffff'
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillText(labelNumber, bx + 17 / zoom, by - 14 / zoom)
-        } else if (ann.type === 'point') {
-          const pt = ann.coords as PointCoords
-          const px = pt.x * imageDimensions.width
-          const py = pt.y * imageDimensions.height
-          const pr = 14 / zoom
-
-          ctx.beginPath()
-          ctx.arc(px, py, pr, 0, Math.PI * 2)
-          ctx.fillStyle = isSelected ? '#6366f1' : '#0f172a'
-          ctx.fill()
-          ctx.strokeStyle = isSelected ? '#ffffff' : '#38bdf8'
-          ctx.stroke()
-
-          ctx.font = `bold ${Math.max(10 / zoom, 8)}px sans-serif`
-          ctx.fillStyle = '#ffffff'
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillText(labelNumber, px, py)
-        } else if (ann.type === 'polygon') {
-          const poly = ann.coords as PolygonCoords
-          if (poly.points && poly.points.length > 0) {
-            ctx.beginPath()
-            poly.points.forEach((p, pidx) => {
-              const px = p.x * imageDimensions.width
-              const py = p.y * imageDimensions.height
-              if (pidx === 0) ctx.moveTo(px, py)
-              else ctx.lineTo(px, py)
-            })
-            ctx.closePath()
-            ctx.stroke()
-            ctx.fill()
-
-            const firstP = poly.points[0]
-            const fx = firstP.x * imageDimensions.width
-            const fy = firstP.y * imageDimensions.height
-            ctx.font = `bold ${Math.max(10 / zoom, 8)}px sans-serif`
-            ctx.fillStyle = '#ffffff'
-            ctx.fillText(labelNumber, fx, fy - 10 / zoom)
-          }
-        }
-
-        ctx.restore()
-      })
-    }
-
-    // Draw active drawing shape
-    if (isDrawing && currentBBox) {
-      ctx.save()
-      ctx.lineWidth = 2 / zoom
-      ctx.strokeStyle = '#a855f7'
-      ctx.setLineDash([4 / zoom, 4 / zoom])
-      ctx.fillStyle = 'rgba(168, 85, 247, 0.2)'
-
-      const bx = currentBBox.x * imageDimensions.width
-      const by = currentBBox.y * imageDimensions.height
-      const bw = currentBBox.w * imageDimensions.width
-      const bh = currentBBox.h * imageDimensions.height
-
-      ctx.strokeRect(bx, by, bw, bh)
-      ctx.fillRect(bx, by, bw, bh)
-      ctx.restore()
-    }
-
-    // Draw active polygon preview
-    if (activeTool === 'polygon' && polygonPoints.length > 0) {
-      ctx.save()
-      ctx.lineWidth = 2 / zoom
-      ctx.strokeStyle = '#a855f7'
-      ctx.fillStyle = 'rgba(168, 85, 247, 0.2)'
-      ctx.beginPath()
-      polygonPoints.forEach((p, idx) => {
-        const px = p.x * imageDimensions.width
-        const py = p.y * imageDimensions.height
-        if (idx === 0) ctx.moveTo(px, py)
-        else ctx.lineTo(px, py)
-      })
-      ctx.stroke()
-      polygonPoints.forEach(p => {
-        ctx.beginPath()
-        ctx.arc(p.x * imageDimensions.width, p.y * imageDimensions.height, 4 / zoom, 0, Math.PI * 2)
-        ctx.fillStyle = '#a855f7'
-        ctx.fill()
-      })
-      ctx.restore()
-    }
-
-    ctx.restore()
+    drawCanvas({
+      ctx,
+      width: canvas.width,
+      height: canvas.height,
+      image: imageRef.current,
+      imageLoaded,
+      imageDimensions,
+      pan,
+      zoom,
+      descriptor,
+      selectedAnnotationId,
+      activeTool,
+      isDrawing,
+      currentBBox,
+      polygonPoints,
+      measureStart,
+      measureEnd,
+      showGrid,
+      theme
+    })
   }, [
     imageLoaded,
     pan,
@@ -315,7 +180,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     activeTool,
     isDrawing,
     currentBBox,
-    polygonPoints
+    polygonPoints,
+    measureStart,
+    measureEnd,
+    showGrid,
+    theme
   ])
 
   useEffect(() => {
@@ -329,6 +198,80 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     return () => window.removeEventListener('resize', handleResize)
   }, [renderCanvas])
 
+  // Keyboard Shortcuts Handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when user is typing in input or textarea
+      const target = e.target as HTMLElement
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+        return
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          if (onRedo) onRedo()
+        } else {
+          if (onUndo) onUndo()
+        }
+        return
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        if (onRedo) onRedo()
+        return
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 's':
+        case 'v':
+          onSelectTool('select')
+          break
+        case 'b':
+          onSelectTool('bbox')
+          break
+        case 'p':
+          onSelectTool('point')
+          break
+        case 'l':
+          onSelectTool('polygon')
+          setPolygonPoints([])
+          break
+        case 'h':
+          onSelectTool(activeTool === 'heatmap' ? 'select' : 'heatmap')
+          break
+        case 'g':
+          setShowGrid(g => !g)
+          break
+        case 'm':
+          onSelectTool('measure')
+          break
+        case '+':
+        case '=':
+          setZoom(z => Math.min(z * 1.25, 5))
+          break
+        case '-':
+        case '_':
+          setZoom(z => Math.max(z * 0.8, 0.1))
+          break
+        case '0':
+          handleFitZoom()
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeTool, onSelectTool, onUndo, onRedo])
+
+  // Mouse Coords helper
+  const getMouseCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!containerRef.current) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    return getRelativeCoords(e.clientX, e.clientY, rect, pan, zoom, imageDimensions)
+  }
+
   // Mouse / Canvas Events
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!imageLoaded) return
@@ -340,7 +283,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       return
     }
 
-    const relCoords = getRelativeCoords(e.clientX, e.clientY)
+    const relCoords = getMouseCoords(e)
     if (!relCoords) return
 
     if (activeTool === 'select') {
@@ -387,6 +330,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     } else if (activeTool === 'polygon') {
       const nextPoints = [...polygonPoints, relCoords]
       setPolygonPoints(nextPoints)
+    } else if (activeTool === 'measure') {
+      setMeasureStart(relCoords)
+      setMeasureEnd(relCoords)
     }
   }
 
@@ -399,16 +345,18 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       return
     }
 
-    if (isDrawing && drawStart && activeTool === 'bbox') {
-      const currentCoords = getRelativeCoords(e.clientX, e.clientY)
-      if (!currentCoords) return
+    const currentCoords = getMouseCoords(e)
+    if (!currentCoords) return
 
+    if (isDrawing && drawStart && activeTool === 'bbox') {
       const minX = Math.min(drawStart.x, currentCoords.x)
       const minY = Math.min(drawStart.y, currentCoords.y)
       const w = Math.abs(currentCoords.x - drawStart.x)
       const h = Math.abs(currentCoords.y - drawStart.y)
 
       setCurrentBBox({ x: minX, y: minY, w, h })
+    } else if (activeTool === 'measure' && measureStart) {
+      setMeasureEnd(currentCoords)
     }
   }
 
@@ -458,10 +406,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }
 
-  // Zoom control buttons
+  // Zoom control actions
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.25, 5))
   const handleZoomOut = () => setZoom(z => Math.max(z * 0.8, 0.1))
-  const handleResetZoom = () => {
+  
+  const handleFitZoom = () => {
     if (containerRef.current && imageDimensions.width && imageDimensions.height) {
       const cw = containerRef.current.clientWidth - 80
       const ch = containerRef.current.clientHeight - 80
@@ -470,6 +419,16 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       setPan({
         x: (containerRef.current.clientWidth - imageDimensions.width * fitScale) / 2,
         y: (containerRef.current.clientHeight - imageDimensions.height * fitScale) / 2
+      })
+    }
+  }
+
+  const handle100Zoom = () => {
+    setZoom(1)
+    if (containerRef.current && imageDimensions.width && imageDimensions.height) {
+      setPan({
+        x: (containerRef.current.clientWidth - imageDimensions.width) / 2,
+        y: (containerRef.current.clientHeight - imageDimensions.height) / 2
       })
     }
   }
@@ -494,27 +453,64 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
     >
+      {/* Loading Spinner */}
+      {imageLoading && (
+        <div className="canvas-loading-overlay">
+          <Loader2 size={36} className="spinner-icon text-primary" />
+          <span>Carregando Imagem...</span>
+        </div>
+      )}
+
       {/* Floating Toolbar */}
       {imageLoaded && (
-        <div className="canvas-toolbar">
+        <div className="canvas-toolbar" role="toolbar" aria-label="Ferramentas de Anotação">
+          {/* Undo / Redo */}
+          {onUndo && (
+            <button
+              className="tool-button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Desfazer (Ctrl+Z)"
+              aria-label="Desfazer alteração"
+            >
+              <RotateCcw size={16} />
+            </button>
+          )}
+          {onRedo && (
+            <button
+              className="tool-button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Refazer (Ctrl+Y)"
+              aria-label="Refazer alteração"
+            >
+              <RotateCw size={16} />
+            </button>
+          )}
+
+          <div className="tool-divider" />
+
           <button
             className={`tool-button ${activeTool === 'select' ? 'active' : ''}`}
             onClick={() => onSelectTool('select')}
-            title="Selecionar / Mover Anotação"
+            title="Selecionar Anotação (Atalho: S)"
+            aria-label="Ferramenta de seleção"
           >
             <MousePointer size={16} />
           </button>
           <button
             className={`tool-button ${activeTool === 'bbox' ? 'active' : ''}`}
             onClick={() => onSelectTool('bbox')}
-            title="Desenhar Retângulo / Bounding Box"
+            title="Desenhar Retângulo Bounding Box (Atalho: B)"
+            aria-label="Ferramenta de retângulo"
           >
             <Square size={16} />
           </button>
           <button
             className={`tool-button ${activeTool === 'point' ? 'active' : ''}`}
             onClick={() => onSelectTool('point')}
-            title="Marcar Ponto Específico"
+            title="Marcar Ponto (Atalho: P)"
+            aria-label="Ferramenta de ponto"
           >
             <Dot size={20} />
           </button>
@@ -524,24 +520,50 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
               onSelectTool('polygon')
               setPolygonPoints([])
             }}
-            title="Polígono (Clique pontos e dê duplo clique para fechar)"
+            title="Polígono (Atalho: L - Duplo clique para fechar)"
+            aria-label="Ferramenta de polígono"
           >
             <Hexagon size={16} />
           </button>
           <button
             className={`tool-button ${activeTool === 'pan' ? 'active' : ''}`}
             onClick={() => onSelectTool('pan')}
-            title="Mover Imagem (Pan)"
+            title="Mover Imagem / Pan"
+            aria-label="Ferramenta de navegação da imagem"
           >
             <Hand size={16} />
+          </button>
+          <button
+            className={`tool-button ${activeTool === 'measure' ? 'active' : ''}`}
+            onClick={() => {
+              onSelectTool('measure')
+              setMeasureStart(null)
+              setMeasureEnd(null)
+            }}
+            title="Régua de Medição em Pixels (Atalho: M)"
+            aria-label="Ferramenta de medição em pixels"
+          >
+            <Ruler size={16} />
           </button>
 
           <div className="tool-divider" />
 
+          {/* Grid Overlay Toggle */}
+          <button
+            className={`tool-button ${showGrid ? 'active' : ''}`}
+            onClick={() => setShowGrid(g => !g)}
+            title="Grade de Alinhamento (Atalho: G)"
+            aria-label="Alternar grade de alinhamento"
+          >
+            <Grid size={16} />
+          </button>
+
+          {/* Heatmap Quick Toggle */}
           <button
             className={`tool-button ${activeTool === 'heatmap' ? 'active' : ''}`}
             onClick={() => onSelectTool(activeTool === 'heatmap' ? 'select' : 'heatmap')}
-            title="Visualização de Mapa de Calor (Heatmap)"
+            title="Mapa de Calor / Heatmap (Atalho: H)"
+            aria-label="Alternar mapa de calor"
           >
             <Flame size={16} />
           </button>
@@ -552,13 +574,15 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       {imageLoaded ? (
         <canvas
           ref={canvasRef}
+          role="img"
+          aria-label="Canvas de visualização da interface para anotações"
           style={{
             width: '100%',
             height: '100%',
             cursor:
               activeTool === 'pan' || isPanning
                 ? 'grab'
-                : activeTool === 'bbox' || activeTool === 'polygon' || activeTool === 'point'
+                : activeTool === 'bbox' || activeTool === 'polygon' || activeTool === 'point' || activeTool === 'measure'
                 ? 'crosshair'
                 : 'default'
           }}
@@ -582,12 +606,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           }}
         >
           <div className="dropzone-icon">
-            <ImageIcon size={32} />
+            <ImageIcon size={34} />
           </div>
           <h3 className="dropzone-title">Carregar Tela da Aplicação</h3>
           <p className="dropzone-subtitle">
-            Arraste e solte uma imagem aqui, clique para selecionar ou simplesmente pressione{' '}
-            <kbd style={{ background: '#1e2638', padding: '2px 6px', borderRadius: '4px' }}>Ctrl + V</kbd> / <kbd style={{ background: '#1e2638', padding: '2px 6px', borderRadius: '4px' }}>Cmd + V</kbd> para colar da área de transferência.
+            Arraste e solte uma imagem aqui, clique para selecionar ou cole com{' '}
+            <kbd className="key-badge">Ctrl + V</kbd> / <kbd className="key-badge">Cmd + V</kbd>.
           </p>
           <button className="btn btn-primary" onClick={e => e.stopPropagation()}>
             <Upload size={16} />
@@ -598,16 +622,19 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
       {/* Zoom Controls */}
       {imageLoaded && (
-        <div className="canvas-zoom-controls">
-          <button className="zoom-btn" onClick={handleZoomOut} title="Diminuir Zoom">
+        <div className="canvas-zoom-controls" aria-label="Controles de Zoom">
+          <button className="zoom-btn" onClick={handleZoomOut} title="Diminuir Zoom (-)">
             <ZoomOut size={15} />
           </button>
           <span className="zoom-text">{Math.round(zoom * 100)}%</span>
-          <button className="zoom-btn" onClick={handleZoomIn} title="Aumentar Zoom">
+          <button className="zoom-btn" onClick={handleZoomIn} title="Aumentar Zoom (+)">
             <ZoomIn size={15} />
           </button>
-          <button className="zoom-btn" onClick={handleResetZoom} title="Ajustar à Tela">
+          <button className="zoom-btn" onClick={handleFitZoom} title="Ajustar à Tela (0)">
             <Maximize2 size={15} />
+          </button>
+          <button className="zoom-btn" onClick={handle100Zoom} title="Zoom Real 100%">
+            <Scale size={15} />
           </button>
         </div>
       )}
