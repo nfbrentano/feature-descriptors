@@ -181,7 +181,7 @@ export function importAnnotationsFromJSON(
     const validAnnotations: Annotation[] = rawAnnotations.map((item, idx) => ({
       id: item.id || `imported-${Date.now()}-${idx}`,
       descriptor_id: targetDescriptorId,
-      type: ['bbox', 'point', 'polygon'].includes(item.type) ? item.type : 'bbox',
+      type: ['bbox', 'point', 'polygon', 'freehand'].includes(item.type) ? item.type : 'bbox',
       coords: item.coords || { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
       title: item.title || `Anotação Importada ${idx + 1}`,
       description: item.description || '',
@@ -194,7 +194,10 @@ export function importAnnotationsFromJSON(
       status: ['open', 'in_progress', 'resolved'].includes(item.status) ? item.status : 'open',
       created_at: item.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      messages: Array.isArray(item.messages) ? item.messages : []
+      messages: Array.isArray(item.messages) ? item.messages : [],
+      hidden: item.hidden || false,
+      color: item.color || undefined,
+      label: item.label || undefined
     }))
 
     return { success: true, annotations: validAnnotations }

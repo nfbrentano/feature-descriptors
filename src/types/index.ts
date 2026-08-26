@@ -1,4 +1,4 @@
-export type AnnotationType = 'bbox' | 'point' | 'polygon'
+export type AnnotationType = 'bbox' | 'point' | 'polygon' | 'freehand'
 
 export type AnnotationStatus = 'open' | 'in_progress' | 'resolved'
 
@@ -18,7 +18,11 @@ export interface PolygonCoords {
   points: Array<{ x: number; y: number }> // percentages 0 to 1
 }
 
-export type AnnotationCoords = BBoxCoords | PointCoords | PolygonCoords
+export interface FreehandCoords {
+  strokes: Array<Array<{ x: number; y: number }>> // arrays of strokes, each stroke is an array of points
+}
+
+export type AnnotationCoords = BBoxCoords | PointCoords | PolygonCoords | FreehandCoords
 
 export interface MessageReaction {
   emoji: string
@@ -60,6 +64,9 @@ export interface Annotation {
     no: number
     votedBy?: Record<string, 'yes' | 'no'>
   }
+  hidden?: boolean
+  color?: string
+  label?: string
 }
 
 export interface Collaborator {
@@ -106,5 +113,5 @@ export interface UserProfile {
   avatar_url?: string
 }
 
-export type ViewTool = 'select' | 'bbox' | 'point' | 'polygon' | 'pan' | 'heatmap' | 'measure'
+export type ViewTool = 'select' | 'bbox' | 'point' | 'polygon' | 'freehand' | 'pan' | 'heatmap' | 'measure'
 

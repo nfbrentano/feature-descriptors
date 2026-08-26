@@ -6,7 +6,10 @@ import {
   Plus,
   MessageSquare,
   Sparkles,
-  Layers
+  Layers,
+  Eye,
+  EyeOff,
+  Trash2
 } from 'lucide-react'
 import { Descriptor } from '../types'
 
@@ -15,13 +18,17 @@ interface AnnotationSidebarProps {
   selectedAnnotationId: string | null
   onSelectAnnotation: (id: string) => void
   onAddAnnotationPrompt: () => void
+  onUpdateAnnotation?: (ann: any) => void
+  onDeleteAnnotation?: (id: string) => void
 }
 
 export const AnnotationSidebar: React.FC<AnnotationSidebarProps> = ({
   descriptor,
   selectedAnnotationId,
   onSelectAnnotation,
-  onAddAnnotationPrompt
+  onAddAnnotationPrompt,
+  onUpdateAnnotation,
+  onDeleteAnnotation
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolved'>('all')
@@ -149,22 +156,53 @@ export const AnnotationSidebar: React.FC<AnnotationSidebarProps> = ({
                 onClick={() => onSelectAnnotation(ann.id)}
               >
                 <div className="annotation-item-header">
-                  <span className="annotation-badge-num">A{originalIndex + 1}</span>
-                  {ann.estimate_points !== undefined && (
-                    <span
-                      style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        color: 'var(--accent-amber)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px'
-                      }}
-                    >
-                      <Sparkles size={11} />
-                      {ann.estimate_points} pts
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="annotation-badge-num" style={{ background: ann.color || 'var(--accent-primary)' }}>
+                      A{originalIndex + 1}
                     </span>
-                  )}
+                    {ann.label && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 500, color: ann.color || 'var(--text-primary)' }}>
+                        {ann.label}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {ann.estimate_points !== undefined && (
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          color: 'var(--accent-amber)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <Sparkles size={11} />
+                        {ann.estimate_points} pts
+                      </span>
+                    )}
+                    {onUpdateAnnotation && (
+                      <button 
+                        className="btn-icon-only" 
+                        style={{ padding: '2px', opacity: 0.6 }}
+                        onClick={(e) => { e.stopPropagation(); onUpdateAnnotation({ ...ann, hidden: !ann.hidden }) }}
+                        title={ann.hidden ? "Mostrar anotação" : "Ocultar anotação"}
+                      >
+                        {ann.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    )}
+                    {onDeleteAnnotation && (
+                      <button 
+                        className="btn-icon-only" 
+                        style={{ padding: '2px', opacity: 0.6, color: 'var(--accent-rose)' }}
+                        onClick={(e) => { e.stopPropagation(); onDeleteAnnotation(ann.id) }}
+                        title="Excluir anotação"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="annotation-item-title">{ann.title || 'Sem título'}</div>

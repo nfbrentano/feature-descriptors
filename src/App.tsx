@@ -494,6 +494,8 @@ export function App() {
             setActiveTool('select')
           }}
           onAddAnnotationPrompt={() => setActiveTool('bbox')}
+          onUpdateAnnotation={handleUpdateAnnotation}
+          onDeleteAnnotation={handleDeleteAnnotation}
         />
 
         {/* Center: Canvas Viewport */}

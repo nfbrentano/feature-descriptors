@@ -3,6 +3,7 @@ import {
   Descriptor,
   PointCoords,
   PolygonCoords,
+  FreehandCoords,
   ViewTool
 } from '../types'
 
@@ -21,8 +22,10 @@ export interface RenderCanvasOptions {
   isDrawing: boolean
   currentBBox: BBoxCoords | null
   polygonPoints: Array<{ x: number; y: number }>
+  currentFreehandStrokes?: Array<Array<{ x: number; y: number }>>
   measureStart: { x: number; y: number } | null
   measureEnd: { x: number; y: number } | null
+  imageFilter?: { brightness: number; contrast: number; grayscale: number }
   showGrid: boolean
   gridSize?: number // percentage of width e.g. 0.05
   heatmapRadius?: number
@@ -72,8 +75,10 @@ export function drawCanvas({
   isDrawing,
   currentBBox,
   polygonPoints,
+  currentFreehandStrokes = [],
   measureStart,
   measureEnd,
+  imageFilter = { brightness: 100, contrast: 100, grayscale: 0 },
   showGrid = false,
   gridSize = 0.05,
   heatmapRadius = 0.15,
@@ -88,8 +93,16 @@ export function drawCanvas({
   ctx.translate(pan.x, pan.y)
   ctx.scale(zoom, zoom)
 
+  // Apply Image Filters
+  if (imageFilter) {
+    ctx.filter = `brightness(${imageFilter.brightness}%) contrast(${imageFilter.contrast}%) grayscale(${imageFilter.grayscale}%)`
+  }
+
   // Draw background image
   ctx.drawImage(image, 0, 0, imageDimensions.width, imageDimensions.height)
+
+  // Reset filter for annotations
+  ctx.filter = 'none'
 
   // Draw optional Grid Overlay
   if (showGrid) {
@@ -136,6 +149,22 @@ export function drawCanvas({
           cx = (sumX / poly.points.length) * imageDimensions.width
           cy = (sumY / poly.points.length) * imageDimensions.height
         }
+      } else if (ann.type === 'freehand') {
+        const freehand = ann.coords as FreehandCoords
+        if (freehand.strokes && freehand.strokes.length > 0) {
+          let sumX = 0, sumY = 0, count = 0
+          freehand.strokes.forEach(stroke => {
+            stroke.forEach(pt => {
+              sumX += pt.x
+              sumY += pt.y
+              count++
+            })
+          })
+          if (count > 0) {
+            cx = (sumX / count) * imageDimensions.width
+            cy = (sumY / count) * imageDimensions.height
+          }
+        }
       }
       const radius = Math.max(imageDimensions.width, imageDimensions.height) * heatmapRadius
       const radGrad = ctx.createRadialGradient(cx, cy, 5, cx, cy, radius)
@@ -153,18 +182,24 @@ export function drawCanvas({
   // Draw existing annotations
   if (descriptor?.annotations) {
     descriptor.annotations.forEach((ann, idx) => {
+      if (ann.hidden) return // Do not render if hidden
+
       const isSelected = ann.id === selectedAnnotationId
       const isResolved = ann.status === 'resolved'
       const labelNumber = `A${idx + 1}`
 
       ctx.save()
       ctx.lineWidth = isSelected ? 3 / zoom : 2 / zoom
-      ctx.strokeStyle = isSelected ? '#6366f1' : isResolved ? '#64748b' : '#38bdf8'
-      ctx.fillStyle = isSelected
+      
+      const defaultStroke = isSelected ? '#6366f1' : isResolved ? '#64748b' : '#38bdf8'
+      const defaultFill = isSelected
         ? 'rgba(99, 102, 241, 0.25)'
         : isResolved
         ? 'rgba(100, 116, 139, 0.15)'
         : 'rgba(56, 189, 248, 0.15)'
+
+      ctx.strokeStyle = ann.color || defaultStroke
+      ctx.fillStyle = ann.color ? `${ann.color}40` : defaultFill // 40 is hex for 25% opacity
 
       if (ann.type === 'bbox') {
         const b = ann.coords as BBoxCoords
@@ -177,7 +212,7 @@ export function drawCanvas({
         ctx.fillRect(bx, by, bw, bh)
 
         // Tag badge label
-        ctx.fillStyle = isSelected ? '#6366f1' : '#0f172a'
+        ctx.fillStyle = ann.color || (isSelected ? '#6366f1' : '#0f172a')
         ctx.beginPath()
         ctx.roundRect(bx, by - 24 / zoom, 34 / zoom, 20 / zoom, 4 / zoom)
         ctx.fill()
@@ -197,9 +232,9 @@ export function drawCanvas({
 
         ctx.beginPath()
         ctx.arc(px, py, pr, 0, Math.PI * 2)
-        ctx.fillStyle = isSelected ? '#6366f1' : '#0f172a'
+        ctx.fillStyle = ann.color || (isSelected ? '#6366f1' : '#0f172a')
         ctx.fill()
-        ctx.strokeStyle = isSelected ? '#ffffff' : '#38bdf8'
+        ctx.strokeStyle = isSelected ? '#ffffff' : (ann.color || '#38bdf8')
         ctx.stroke()
 
         ctx.font = `bold ${Math.max(10 / zoom, 8)}px sans-serif`
@@ -227,6 +262,33 @@ export function drawCanvas({
           ctx.font = `bold ${Math.max(10 / zoom, 8)}px sans-serif`
           ctx.fillStyle = '#ffffff'
           ctx.fillText(labelNumber, fx, fy - 10 / zoom)
+        }
+      } else if (ann.type === 'freehand') {
+        const freehand = ann.coords as FreehandCoords
+        if (freehand.strokes && freehand.strokes.length > 0) {
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          
+          freehand.strokes.forEach(stroke => {
+            if (stroke.length === 0) return
+            ctx.beginPath()
+            stroke.forEach((p, pidx) => {
+              const px = p.x * imageDimensions.width
+              const py = p.y * imageDimensions.height
+              if (pidx === 0) ctx.moveTo(px, py)
+              else ctx.lineTo(px, py)
+            })
+            ctx.stroke()
+          })
+
+          const firstStroke = freehand.strokes[0]
+          if (firstStroke && firstStroke.length > 0) {
+            const fx = firstStroke[0].x * imageDimensions.width
+            const fy = firstStroke[0].y * imageDimensions.height
+            ctx.font = `bold ${Math.max(10 / zoom, 8)}px sans-serif`
+            ctx.fillStyle = ann.color || '#ffffff'
+            ctx.fillText(labelNumber, fx, fy - 10 / zoom)
+          }
         }
       }
 
@@ -271,6 +333,28 @@ export function drawCanvas({
       ctx.arc(p.x * imageDimensions.width, p.y * imageDimensions.height, 4 / zoom, 0, Math.PI * 2)
       ctx.fillStyle = '#a855f7'
       ctx.fill()
+    })
+    ctx.restore()
+  }
+
+  // Draw active freehand drawing preview
+  if (activeTool === 'freehand' && currentFreehandStrokes.length > 0) {
+    ctx.save()
+    ctx.lineWidth = 2 / zoom
+    ctx.strokeStyle = '#a855f7'
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    
+    currentFreehandStrokes.forEach(stroke => {
+      if (stroke.length === 0) return
+      ctx.beginPath()
+      stroke.forEach((p, idx) => {
+        const px = p.x * imageDimensions.width
+        const py = p.y * imageDimensions.height
+        if (idx === 0) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+      })
+      ctx.stroke()
     })
     ctx.restore()
   }

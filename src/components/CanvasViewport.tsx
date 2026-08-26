@@ -16,7 +16,9 @@ import {
   RotateCcw,
   RotateCw,
   Loader2,
-  Scale
+  Scale,
+  PenTool,
+  Sliders
 } from 'lucide-react'
 import {
   AnnotationType,
@@ -76,7 +78,13 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [currentBBox, setCurrentBBox] = useState<BBoxCoords | null>(null)
   const [polygonPoints, setPolygonPoints] = useState<Array<{ x: number; y: number }>>([])
+  const [freehandStrokes, setFreehandStrokes] = useState<Array<Array<{ x: number; y: number }>>>([])
+  const [currentStroke, setCurrentStroke] = useState<Array<{ x: number; y: number }> | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+
+  // Filters state
+  const [imageFilter, setImageFilter] = useState({ brightness: 100, contrast: 100, grayscale: 0 })
+  const [showFilters, setShowFilters] = useState(false)
 
   // Image loading state
   const [imageLoading, setImageLoading] = useState(false)
@@ -165,8 +173,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       isDrawing,
       currentBBox,
       polygonPoints,
+      currentFreehandStrokes: currentStroke ? [...freehandStrokes, currentStroke] : freehandStrokes,
       measureStart,
       measureEnd,
+      imageFilter,
       showGrid,
       theme
     })
@@ -181,8 +191,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     isDrawing,
     currentBBox,
     polygonPoints,
+    freehandStrokes,
+    currentStroke,
     measureStart,
     measureEnd,
+    imageFilter,
     showGrid,
     theme
   ])
@@ -237,6 +250,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         case 'l':
           onSelectTool('polygon')
           setPolygonPoints([])
+          break
+        case 'f':
+          onSelectTool('freehand')
+          setFreehandStrokes([])
           break
         case 'h':
           onSelectTool(activeTool === 'heatmap' ? 'select' : 'heatmap')
@@ -330,6 +347,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     } else if (activeTool === 'polygon') {
       const nextPoints = [...polygonPoints, relCoords]
       setPolygonPoints(nextPoints)
+    } else if (activeTool === 'freehand') {
+      setIsDrawing(true)
+      setCurrentStroke([relCoords])
     } else if (activeTool === 'measure') {
       setMeasureStart(relCoords)
       setMeasureEnd(relCoords)
@@ -355,6 +375,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       const h = Math.abs(currentCoords.y - drawStart.y)
 
       setCurrentBBox({ x: minX, y: minY, w, h })
+    } else if (isDrawing && activeTool === 'freehand' && currentStroke) {
+      setCurrentStroke([...currentStroke, currentCoords])
     } else if (activeTool === 'measure' && measureStart) {
       setMeasureEnd(currentCoords)
     }
@@ -375,14 +397,24 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         onSelectTool('select')
       }
       setCurrentBBox(null)
+    } else if (isDrawing && currentStroke && activeTool === 'freehand') {
+      setIsDrawing(false)
+      if (currentStroke.length > 1) {
+        setFreehandStrokes([...freehandStrokes, currentStroke])
+      }
+      setCurrentStroke(null)
     }
   }
 
-  // Finish polygon on double click
+  // Finish polygon or freehand on double click
   const handleDoubleClick = () => {
     if (activeTool === 'polygon' && polygonPoints.length >= 3) {
       onCreateAnnotation('polygon', { points: polygonPoints })
       setPolygonPoints([])
+      onSelectTool('select')
+    } else if (activeTool === 'freehand' && freehandStrokes.length > 0) {
+      onCreateAnnotation('freehand', { strokes: freehandStrokes })
+      setFreehandStrokes([])
       onSelectTool('select')
     }
   }
@@ -526,6 +558,17 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             <Hexagon size={16} />
           </button>
           <button
+            className={`tool-button ${activeTool === 'freehand' ? 'active' : ''}`}
+            onClick={() => {
+              onSelectTool('freehand')
+              setFreehandStrokes([])
+            }}
+            title="Desenho Livre (Atalho: F - Duplo clique para salvar)"
+            aria-label="Ferramenta de desenho livre"
+          >
+            <PenTool size={16} />
+          </button>
+          <button
             className={`tool-button ${activeTool === 'pan' ? 'active' : ''}`}
             onClick={() => onSelectTool('pan')}
             title="Mover Imagem / Pan"
@@ -566,6 +609,55 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             aria-label="Alternar mapa de calor"
           >
             <Flame size={16} />
+          </button>
+
+          {/* Image Filters Toggle */}
+          <button
+            className={`tool-button ${showFilters ? 'active' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+            title="Ajustes de Imagem"
+            aria-label="Ajustes de imagem"
+          >
+            <Sliders size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Image Filters Panel */}
+      {showFilters && imageLoaded && (
+        <div className="canvas-filters-panel" style={{
+          position: 'absolute', top: 70, right: 20, background: 'var(--bg-panel)',
+          padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, width: 250
+        }}>
+          <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem' }}>Ajustes de Imagem</h4>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Brilho <span>{imageFilter.brightness}%</span>
+            </label>
+            <input type="range" min="0" max="200" value={imageFilter.brightness} 
+              onChange={e => setImageFilter({...imageFilter, brightness: Number(e.target.value)})}
+              style={{ width: '100%' }} />
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Contraste <span>{imageFilter.contrast}%</span>
+            </label>
+            <input type="range" min="0" max="200" value={imageFilter.contrast} 
+              onChange={e => setImageFilter({...imageFilter, contrast: Number(e.target.value)})}
+              style={{ width: '100%' }} />
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Preto e Branco <span>{imageFilter.grayscale}%</span>
+            </label>
+            <input type="range" min="0" max="100" value={imageFilter.grayscale} 
+              onChange={e => setImageFilter({...imageFilter, grayscale: Number(e.target.value)})}
+              style={{ width: '100%' }} />
+          </div>
+          <button className="btn btn-secondary" style={{ width: '100%', marginTop: 8 }}
+            onClick={() => setImageFilter({ brightness: 100, contrast: 100, grayscale: 0 })}>
+            Resetar
           </button>
         </div>
       )}

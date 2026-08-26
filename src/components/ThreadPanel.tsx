@@ -211,6 +211,42 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
             />
           </div>
 
+          {/* Color & Label row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px' }}>
+            <div className="meta-field">
+              <label className="meta-label">Cor</label>
+              <input
+                type="color"
+                className="meta-input"
+                style={{ padding: '0', height: '36px', cursor: 'pointer' }}
+                value={annotation.color || '#6366f1'}
+                onChange={e =>
+                  onUpdateAnnotation({
+                    ...annotation,
+                    color: e.target.value,
+                    updated_at: new Date().toISOString()
+                  })
+                }
+              />
+            </div>
+            <div className="meta-field">
+              <label className="meta-label">Rótulo / Classe</label>
+              <input
+                type="text"
+                className="meta-input"
+                value={annotation.label || ''}
+                placeholder="Ex: Botão Primário"
+                onChange={e =>
+                  onUpdateAnnotation({
+                    ...annotation,
+                    label: e.target.value,
+                    updated_at: new Date().toISOString()
+                  })
+                }
+              />
+            </div>
+          </div>
+
           {/* Tags */}
           <div className="meta-field">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

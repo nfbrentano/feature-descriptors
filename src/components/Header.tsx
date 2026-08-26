@@ -13,11 +13,11 @@ import {
   Moon,
   RotateCcw,
   RotateCw,
-  HelpCircle,
-  X
+  HelpCircle
 } from 'lucide-react'
 import { Descriptor, UserProfile, ViewTool } from '../types'
 import { isSupabaseConfigured, MAX_DESCRIPTORS_LIMIT } from '../lib/storage'
+import { ShortcutsModal } from './ShortcutsModal'
 
 interface HeaderProps {
   currentDescriptor: Descriptor | null
@@ -207,43 +207,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Shortcuts Modal */}
-      {showShortcutsModal && (
-        <div className="modal-overlay" onClick={() => setShowShortcutsModal(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <HelpCircle size={18} className="text-primary" />
-                <h3 className="modal-title">Atalhos de Teclado</h3>
-              </div>
-              <button className="btn btn-secondary btn-icon-only" onClick={() => setShowShortcutsModal(false)}>
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="shortcuts-grid">
-                <div className="shortcut-row"><kbd>S</kbd> / <kbd>V</kbd> <span>Ferramenta de Seleção</span></div>
-                <div className="shortcut-row"><kbd>B</kbd> <span>Ferramenta de Retângulo (Bounding Box)</span></div>
-                <div className="shortcut-row"><kbd>P</kbd> <span>Ferramenta de Ponto</span></div>
-                <div className="shortcut-row"><kbd>L</kbd> <span>Ferramenta de Polígono</span></div>
-                <div className="shortcut-row"><kbd>M</kbd> <span>Régua de Medição (Pixels)</span></div>
-                <div className="shortcut-row"><kbd>G</kbd> <span>Alternar Grade de Alinhamento</span></div>
-                <div className="shortcut-row"><kbd>H</kbd> <span>Alternar Modo Heatmap</span></div>
-                <div className="shortcut-row"><kbd>Ctrl + Z</kbd> <span>Desfazer (Undo)</span></div>
-                <div className="shortcut-row"><kbd>Ctrl + Y</kbd> <span>Refazer (Redo)</span></div>
-                <div className="shortcut-row"><kbd>+</kbd> / <kbd>-</kbd> <span>Aumentar / Diminuir Zoom</span></div>
-                <div className="shortcut-row"><kbd>0</kbd> <span>Ajustar Zoom à Tela</span></div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn btn-primary" onClick={() => setShowShortcutsModal(false)}>
-                Entendi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ShortcutsModal isOpen={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
     </header>
   )
 }
