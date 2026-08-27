@@ -1,0 +1,43 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: '🚀 Novas Funcionalidades'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: '🐛 Correções de Bugs'
+    labels:
+      - 'fix'
+      - 'bug'
+  - title: '⚡ Performance & Refatoração'
+    labels:
+      - 'performance'
+      - 'refactor'
+  - title: '🧰 Manutenção & Dependências'
+    labels:
+      - 'dependencies'
+      - 'chore'
+      - 'ci'
+change-template: '- $TITLE (@$AUTHOR) em #$NUMBER'
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking-change'
+  minor:
+    labels:
+      - 'minor'
+      - 'enhancement'
+      - 'feature'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bug'
+  default: patch
+template: |
+  ## O que mudou nesta versão
+
+  $CHANGES
+
+  **Autor(es)**: $CONTRIBUTORS

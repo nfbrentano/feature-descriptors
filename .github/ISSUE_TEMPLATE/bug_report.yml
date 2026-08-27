@@ -1,0 +1,49 @@
+name: 🐛 Relato de Bug
+description: Crie um relatório para nos ajudar a identificar e corrigir um problema.
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por dedicar seu tempo para relatar este problema! Por favor, preencha as informações abaixo para nos ajudar a reproduzir o comportamento.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Descreva o problema
+      description: Uma explicação clara e concisa do que ocorreu de forma inesperada.
+      placeholder: Ao clicar em Exportar Markdown com mais de 5 anotações...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Passos para reproduzir
+      description: Como podemos reproduzir o bug?
+      placeholder: |
+        1. Carregar imagem X
+        2. Criar uma anotação Bounding Box
+        3. Clicar no botão Y
+        4. Ver o erro
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+      description: O que deveria ter acontecido?
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente / Navegador
+      description: Em qual navegador ou dispositivo o problema ocorreu?
+      options:
+        - Google Chrome / Chromium
+        - Mozilla Firefox
+        - Safari / WebKit
+        - Microsoft Edge
+        - Dispositivo Móvel / Tablet
+    validations:
+      required: true

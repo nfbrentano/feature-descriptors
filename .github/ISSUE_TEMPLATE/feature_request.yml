@@ -1,0 +1,30 @@
+name: 💡 Sugestão de Melhoria / Feature
+description: Sugira uma nova funcionalidade, ideia ou melhoria técnica para o projeto.
+title: "[FEAT]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adoramos sugestões para evoluir o **Feature Descriptors**! Conte-nos sobre a sua ideia.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qual problema essa funcionalidade resolve?
+      description: Uma descrição clara de qual necessidade ou fricção motivou a sugestão.
+      placeholder: Atualmente é trabalhoso fazer X quando precisamos de Y...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solução proposta
+      description: Descreva a funcionalidade ou fluxo que você gostaria de ver implementado.
+      placeholder: Adicionar um botão no painel que faça...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      description: Há outros caminhos ou ferramentas que você considerou para isso?
