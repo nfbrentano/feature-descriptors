@@ -16,6 +16,7 @@ import {
   isSupabaseConfigured,
   MAX_DESCRIPTORS_LIMIT
 } from '../lib/storage'
+import { getSupabase } from '../lib/supabase'
 import { useHistory } from '../lib/history'
 import { analyzeAnnotationContent } from '../lib/aiHelper'
 import { withRetry } from '../lib/retry'
@@ -147,6 +148,7 @@ export function useDescriptors(
   const [currentUser, setCurrentUser] = useState<UserProfile>(getLocalUser)
   const [activeDescriptorId, setActiveDescriptorId] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isRealtimeSyncing, setIsRealtimeSyncing] = useState(false)
 
   const {
     state: descriptors,
@@ -401,21 +403,55 @@ export function useDescriptors(
     [onShowToast]
   )
 
-  const reloadFromSupabase = useCallback(async () => {
-    setIsSyncing(true)
+  const reloadFromSupabase = useCallback(async (silent = false) => {
+    if (!silent) setIsSyncing(true)
+    else setIsRealtimeSyncing(true)
     try {
       const list = await fetchSupabaseDescriptors(currentUser.id)
       if (list && list.length > 0) {
+        // Only override if there are actually changes, or just trust the new state
         setDescriptors(list)
-        setActiveDescriptorId(list[0].id)
+        if (!silent) {
+          setActiveDescriptorId(list[0].id)
+          onShowToast('success', 'Supabase Conectado', 'Anotações sincronizadas com a nuvem.')
+        }
       }
-      onShowToast('success', 'Supabase Conectado', 'Anotações sincronizadas com a nuvem.')
     } catch (err: any) {
-      onShowToast('error', 'Erro de Sincronização', err.message)
+      if (!silent) onShowToast('error', 'Erro de Sincronização', err.message)
     } finally {
-      setIsSyncing(false)
+      if (!silent) setIsSyncing(false)
+      else setIsRealtimeSyncing(false)
     }
   }, [currentUser.id, onShowToast, setDescriptors])
+
+  // Supabase Realtime Subscriptions
+  useEffect(() => {
+    const supabase = getSupabase()
+    if (!supabase || !isSupabaseConfigured()) return
+
+    let timeoutId: ReturnType<typeof setTimeout>
+
+    const handleRealtimeEvent = (payload: any) => {
+      console.log('Realtime change received:', payload)
+      // Debounce the reload to avoid hammering the database
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        reloadFromSupabase(true)
+      }, 500)
+    }
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'annotations' }, handleRealtimeEvent)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, handleRealtimeEvent)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'descriptors' }, handleRealtimeEvent)
+      .subscribe()
+
+    return () => {
+      clearTimeout(timeoutId)
+      supabase.removeChannel(channel)
+    }
+  }, [reloadFromSupabase])
 
   return {
     descriptors,
@@ -423,7 +459,7 @@ export function useDescriptors(
     activeDescriptorId,
     setActiveDescriptorId,
     currentUser,
-    isSyncing,
+    isSyncing: isSyncing || isRealtimeSyncing,
     canUndo,
     canRedo,
     undoDescriptors,
