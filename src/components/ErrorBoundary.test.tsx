@@ -21,32 +21,39 @@ describe('ErrorBoundary', () => {
   })
 
   it('renders fallback alert and allows retry when an error is caught', () => {
-    // Suppress console.error in tests for expected thrown error
+    // Suppress console.error and window error events during expected error throwing
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const errorHandler = (event: Event) => {
+      event.preventDefault()
+    }
+    window.addEventListener('error', errorHandler)
 
-    const { rerender } = render(
-      <ErrorBoundary fallbackTitle="Erro no Teste">
-        <ThrowingComponent shouldThrow={true} />
-      </ErrorBoundary>
-    )
+    try {
+      const { rerender } = render(
+        <ErrorBoundary fallbackTitle="Erro no Teste">
+          <ThrowingComponent shouldThrow={true} />
+        </ErrorBoundary>
+      )
 
-    expect(screen.getByRole('alert')).toBeInTheDocument()
-    expect(screen.getByText('Erro no Teste')).toBeInTheDocument()
-    expect(screen.getByText('Erro de teste simulado')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByText('Erro no Teste')).toBeInTheDocument()
+      expect(screen.getByText('Erro de teste simulado')).toBeInTheDocument()
 
-    const retryButton = screen.getByText('Tentar Novamente')
-    expect(retryButton).toBeInTheDocument()
+      const retryButton = screen.getByText('Tentar Novamente')
+      expect(retryButton).toBeInTheDocument()
 
-    // Rerender with normal child and click retry
-    rerender(
-      <ErrorBoundary fallbackTitle="Erro no Teste">
-        <ThrowingComponent shouldThrow={false} />
-      </ErrorBoundary>
-    )
+      // Rerender with normal child and click retry
+      rerender(
+        <ErrorBoundary fallbackTitle="Erro no Teste">
+          <ThrowingComponent shouldThrow={false} />
+        </ErrorBoundary>
+      )
 
-    fireEvent.click(retryButton)
-    expect(screen.getByText('Conteúdo Normal')).toBeInTheDocument()
-
-    spy.mockRestore()
+      fireEvent.click(retryButton)
+      expect(screen.getByText('Conteúdo Normal')).toBeInTheDocument()
+    } finally {
+      window.removeEventListener('error', errorHandler)
+      spy.mockRestore()
+    }
   })
 })
