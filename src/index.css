@@ -810,6 +810,27 @@ input, textarea, select, button {
   border-radius: var(--radius-md);
 }
 
+.btn-ghost-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-ghost-icon:hover {
+  color: var(--text-primary);
+}
+
+.btn-ghost-icon.danger:hover {
+  color: var(--accent-rose);
+}
+
 /* Code block preview */
 .code-preview {
   background: #080a0f;

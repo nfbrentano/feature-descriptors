@@ -184,8 +184,7 @@ export const AnnotationSidebar: React.FC<AnnotationSidebarProps> = ({
                     )}
                     {onUpdateAnnotation && (
                       <button 
-                        className="btn-icon-only" 
-                        style={{ padding: '2px', opacity: 0.6 }}
+                        className="btn-ghost-icon" 
                         onClick={(e) => { e.stopPropagation(); onUpdateAnnotation({ ...ann, hidden: !ann.hidden }) }}
                         title={ann.hidden ? "Mostrar anotação" : "Ocultar anotação"}
                       >
@@ -194,8 +193,7 @@ export const AnnotationSidebar: React.FC<AnnotationSidebarProps> = ({
                     )}
                     {onDeleteAnnotation && (
                       <button 
-                        className="btn-icon-only" 
-                        style={{ padding: '2px', opacity: 0.6, color: 'var(--accent-rose)' }}
+                        className="btn-ghost-icon danger" 
                         onClick={(e) => { e.stopPropagation(); onDeleteAnnotation(ann.id) }}
                         title="Excluir anotação"
                       >
