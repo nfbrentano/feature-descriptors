@@ -3,6 +3,7 @@ import { X, Copy, Check, Download, FileText, Code2, Table, Cpu, Upload } from 'l
 import { Descriptor, UserProfile, Annotation } from '../types'
 import { exportDescriptorToMarkdown } from '../lib/markdownExporter'
 import { exportToCSV, exportToCOCO, importAnnotationsFromJSON } from '../lib/exportUtils'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -23,6 +24,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   onImportAnnotations,
   onShowToast
 }) => {
+  const modalRef = useFocusTrap<HTMLDivElement>({ isOpen, onClose })
   const [copied, setCopied] = useState(false)
   const [activeTab, setActiveTab] = useState<ExportTab>('markdown')
   const [importJsonText, setImportJsonText] = useState('')
@@ -116,11 +118,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px' }}>
+      <div
+        className="modal-card"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '820px' }}
+      >
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={20} className="text-primary" />
-            <h3 className="modal-title">Exportar & Importar Anotações</h3>
+            <h3 id="export-modal-title" className="modal-title">Exportar & Importar Anotações</h3>
           </div>
           <button className="btn btn-secondary btn-icon-only" onClick={onClose} aria-label="Fechar modal">
             <X size={16} />
@@ -129,9 +139,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         <div className="modal-body">
           {/* Tab Selector */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }} role="tablist">
             <button
               className={`btn ${activeTab === 'markdown' ? 'btn-primary' : 'btn-secondary'}`}
+              role="tab"
+              aria-selected={activeTab === 'markdown'}
               onClick={() => setActiveTab('markdown')}
             >
               <FileText size={14} />
@@ -139,6 +151,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
             <button
               className={`btn ${activeTab === 'json' ? 'btn-primary' : 'btn-secondary'}`}
+              role="tab"
+              aria-selected={activeTab === 'json'}
               onClick={() => setActiveTab('json')}
             >
               <Code2 size={14} />
@@ -146,6 +160,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
             <button
               className={`btn ${activeTab === 'csv' ? 'btn-primary' : 'btn-secondary'}`}
+              role="tab"
+              aria-selected={activeTab === 'csv'}
               onClick={() => setActiveTab('csv')}
             >
               <Table size={14} />
@@ -153,6 +169,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
             <button
               className={`btn ${activeTab === 'coco' ? 'btn-primary' : 'btn-secondary'}`}
+              role="tab"
+              aria-selected={activeTab === 'coco'}
               onClick={() => setActiveTab('coco')}
             >
               <Cpu size={14} />
@@ -160,6 +178,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
             <button
               className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`}
+              role="tab"
+              aria-selected={activeTab === 'import'}
               onClick={() => setActiveTab('import')}
               style={{ marginLeft: 'auto' }}
             >
@@ -176,7 +196,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 {activeTab === 'csv' && 'Ideal para abrir no Excel, Google Sheets ou importar em ferramentas de gestão.'}
                 {activeTab === 'coco' && 'Formato padrão MS-COCO para treinar modelos de Inteligência Artificial e visão de máquina.'}
               </p>
-              <div className="code-preview">{content}</div>
+              <div className="code-preview" tabIndex={0} aria-label="Pré-visualização do conteúdo exportado">{content}</div>
             </>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -191,7 +211,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   id="import-json-file"
                   style={{ display: 'none' }}
                 />
-                <label htmlFor="import-json-file" className="btn btn-secondary">
+                <label htmlFor="import-json-file" className="btn btn-secondary cursor-pointer">
                   <Upload size={14} />
                   <span>Carregar Arquivo JSON</span>
                 </label>
@@ -201,11 +221,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 rows={10}
                 style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
                 placeholder="Cole o código JSON de anotações aqui..."
+                aria-label="Conteúdo JSON para importação"
                 value={importJsonText}
                 onChange={e => setImportJsonText(e.target.value)}
               />
               {importError && (
-                <div style={{ color: '#fb7185', fontSize: '0.84rem', background: 'rgba(244,63,94,0.1)', padding: '8px 12px', borderRadius: '6px' }}>
+                <div role="alert" style={{ color: '#fb7185', fontSize: '0.84rem', background: 'rgba(244,63,94,0.1)', padding: '8px 12px', borderRadius: '6px' }}>
                   {importError}
                 </div>
               )}

@@ -61,6 +61,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const containerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const animFrameRef = useRef<number | null>(null)
 
   // Zoom & Pan state
   const [zoom, setZoom] = useState<number>(1)
@@ -98,20 +99,20 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   useEffect(() => {
     if (!descriptor?.image?.url) {
       setImageLoaded(false)
-      setImageLoading(false)
+      imageRef.current = null
       return
     }
 
     setImageLoading(true)
     const img = new Image()
     img.src = descriptor.image.url
+
     img.onload = () => {
       imageRef.current = img
       setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight })
       setImageLoaded(true)
       setImageLoading(false)
 
-      // Auto fit zoom on load
       if (containerRef.current) {
         const cw = containerRef.current.clientWidth - 80
         const ch = containerRef.current.clientHeight - 80
@@ -123,17 +124,25 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         })
       }
     }
+
     img.onerror = () => {
       setImageLoading(false)
       setImageLoaded(false)
+      imageRef.current = null
+    }
+
+    return () => {
+      img.onload = null
+      img.onerror = null
     }
   }, [descriptor?.image?.url])
 
-  // Paste image handler (Ctrl+V / Cmd+V anywhere on page)
+  // Paste image handler from clipboard
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items
       if (!items) return
+
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf('image') !== -1) {
           const file = items[i].getAsFile()
@@ -148,37 +157,44 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     return () => window.removeEventListener('paste', handlePaste)
   }, [onUploadImage])
 
-  // Render Canvas with modular helper
+  // Render Canvas with requestAnimationFrame for smooth 60fps
   const renderCanvas = useCallback(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !containerRef.current) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (animFrameRef.current !== null) {
+      cancelAnimationFrame(animFrameRef.current)
+    }
 
-    canvas.width = containerRef.current.clientWidth
-    canvas.height = containerRef.current.clientHeight
+    animFrameRef.current = requestAnimationFrame(() => {
+      const canvas = canvasRef.current
+      if (!canvas || !containerRef.current) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
 
-    drawCanvas({
-      ctx,
-      width: canvas.width,
-      height: canvas.height,
-      image: imageRef.current,
-      imageLoaded,
-      imageDimensions,
-      pan,
-      zoom,
-      descriptor,
-      selectedAnnotationId,
-      activeTool,
-      isDrawing,
-      currentBBox,
-      polygonPoints,
-      currentFreehandStrokes: currentStroke ? [...freehandStrokes, currentStroke] : freehandStrokes,
-      measureStart,
-      measureEnd,
-      imageFilter,
-      showGrid,
-      theme
+      canvas.width = containerRef.current.clientWidth
+      canvas.height = containerRef.current.clientHeight
+
+      drawCanvas({
+        ctx,
+        width: canvas.width,
+        height: canvas.height,
+        image: imageRef.current,
+        imageLoaded,
+        imageDimensions,
+        pan,
+        zoom,
+        descriptor,
+        selectedAnnotationId,
+        activeTool,
+        isDrawing,
+        currentBBox,
+        polygonPoints,
+        currentFreehandStrokes: currentStroke ? [...freehandStrokes, currentStroke] : freehandStrokes,
+        measureStart,
+        measureEnd,
+        imageFilter,
+        showGrid,
+        theme
+      })
+      animFrameRef.current = null
     })
   }, [
     imageLoaded,
@@ -202,6 +218,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
   useEffect(() => {
     renderCanvas()
+    return () => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current)
+      }
+    }
   }, [renderCanvas])
 
   // Resize listener
@@ -214,7 +235,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   // Keyboard Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept when user is typing in input or textarea
       const target = e.target as HTMLElement
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
         return
@@ -293,7 +313,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!imageLoaded) return
 
-    // Middle click or Pan tool: start pan
     if (e.button === 1 || activeTool === 'pan') {
       setIsPanning(true)
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
@@ -304,7 +323,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (!relCoords) return
 
     if (activeTool === 'select') {
-      // Find clicked annotation
       let hitId: string | null = null
       if (descriptor?.annotations) {
         for (let i = descriptor.annotations.length - 1; i >= 0; i--) {
@@ -391,7 +409,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (isDrawing && currentBBox && activeTool === 'bbox') {
       setIsDrawing(false)
       setDrawStart(null)
-      // Only create if not tiny
       if (currentBBox.w > 0.01 && currentBBox.h > 0.01) {
         onCreateAnnotation('bbox', currentBBox)
         onSelectTool('select')
@@ -406,7 +423,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }
 
-  // Finish polygon or freehand on double click
   const handleDoubleClick = () => {
     if (activeTool === 'polygon' && polygonPoints.length >= 3) {
       onCreateAnnotation('polygon', { points: polygonPoints })
@@ -419,7 +435,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }
 
-  // Wheel Zoom
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9
@@ -438,10 +453,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }
 
-  // Zoom control actions
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.25, 5))
   const handleZoomOut = () => setZoom(z => Math.max(z * 0.8, 0.1))
-  
+
   const handleFitZoom = () => {
     if (containerRef.current && imageDimensions.width && imageDimensions.height) {
       const cw = containerRef.current.clientWidth - 80
@@ -465,7 +479,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }
 
-  // Drag-and-drop file
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
@@ -478,6 +491,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     <div
       className="canvas-container"
       ref={containerRef}
+      role="region"
+      aria-label="Área de Desenho e Wireframe"
       onDragOver={e => {
         e.preventDefault()
         setIsDragOver(true)
@@ -487,7 +502,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     >
       {/* Loading Spinner */}
       {imageLoading && (
-        <div className="canvas-loading-overlay">
+        <div className="canvas-loading-overlay" role="status" aria-live="polite">
           <Loader2 size={36} className="spinner-icon text-primary" />
           <span>Carregando Imagem...</span>
         </div>
@@ -527,6 +542,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => onSelectTool('select')}
             title="Selecionar Anotação (Atalho: S)"
             aria-label="Ferramenta de seleção"
+            aria-pressed={activeTool === 'select'}
           >
             <MousePointer size={16} />
           </button>
@@ -535,6 +551,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => onSelectTool('bbox')}
             title="Desenhar Retângulo Bounding Box (Atalho: B)"
             aria-label="Ferramenta de retângulo"
+            aria-pressed={activeTool === 'bbox'}
           >
             <Square size={16} />
           </button>
@@ -543,6 +560,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => onSelectTool('point')}
             title="Marcar Ponto (Atalho: P)"
             aria-label="Ferramenta de ponto"
+            aria-pressed={activeTool === 'point'}
           >
             <Dot size={20} />
           </button>
@@ -554,6 +572,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             }}
             title="Polígono (Atalho: L - Duplo clique para fechar)"
             aria-label="Ferramenta de polígono"
+            aria-pressed={activeTool === 'polygon'}
           >
             <Hexagon size={16} />
           </button>
@@ -565,6 +584,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             }}
             title="Desenho Livre (Atalho: F - Duplo clique para salvar)"
             aria-label="Ferramenta de desenho livre"
+            aria-pressed={activeTool === 'freehand'}
           >
             <PenTool size={16} />
           </button>
@@ -573,6 +593,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => onSelectTool('pan')}
             title="Mover Imagem / Pan"
             aria-label="Ferramenta de navegação da imagem"
+            aria-pressed={activeTool === 'pan'}
           >
             <Hand size={16} />
           </button>
@@ -585,6 +606,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             }}
             title="Régua de Medição em Pixels (Atalho: M)"
             aria-label="Ferramenta de medição em pixels"
+            aria-pressed={activeTool === 'measure'}
           >
             <Ruler size={16} />
           </button>
@@ -597,6 +619,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => setShowGrid(g => !g)}
             title="Grade de Alinhamento (Atalho: G)"
             aria-label="Alternar grade de alinhamento"
+            aria-pressed={showGrid}
           >
             <Grid size={16} />
           </button>
@@ -607,6 +630,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => onSelectTool(activeTool === 'heatmap' ? 'select' : 'heatmap')}
             title="Mapa de Calor / Heatmap (Atalho: H)"
             aria-label="Alternar mapa de calor"
+            aria-pressed={activeTool === 'heatmap'}
           >
             <Flame size={16} />
           </button>
@@ -617,6 +641,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
             onClick={() => setShowFilters(!showFilters)}
             title="Ajustes de Imagem"
             aria-label="Ajustes de imagem"
+            aria-expanded={showFilters}
           >
             <Sliders size={16} />
           </button>
@@ -625,38 +650,71 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
       {/* Image Filters Panel */}
       {showFilters && imageLoaded && (
-        <div className="canvas-filters-panel" style={{
-          position: 'absolute', top: 70, right: 20, background: 'var(--bg-panel)',
-          padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, width: 250
-        }}>
+        <div
+          className="canvas-filters-panel"
+          style={{
+            position: 'absolute',
+            top: 70,
+            right: 20,
+            background: 'var(--bg-panel)',
+            padding: 16,
+            borderRadius: 8,
+            border: '1px solid var(--border-subtle)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            zIndex: 10,
+            width: 250
+          }}
+          role="region"
+          aria-label="Painel de Filtros de Imagem"
+        >
           <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem' }}>Ajustes de Imagem</h4>
           <div style={{ marginBottom: 10 }}>
             <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Brilho <span>{imageFilter.brightness}%</span>
             </label>
-            <input type="range" min="0" max="200" value={imageFilter.brightness} 
-              onChange={e => setImageFilter({...imageFilter, brightness: Number(e.target.value)})}
-              style={{ width: '100%' }} />
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={imageFilter.brightness}
+              aria-label="Ajustar brilho"
+              onChange={e => setImageFilter({ ...imageFilter, brightness: Number(e.target.value) })}
+              style={{ width: '100%' }}
+            />
           </div>
           <div style={{ marginBottom: 10 }}>
             <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Contraste <span>{imageFilter.contrast}%</span>
             </label>
-            <input type="range" min="0" max="200" value={imageFilter.contrast} 
-              onChange={e => setImageFilter({...imageFilter, contrast: Number(e.target.value)})}
-              style={{ width: '100%' }} />
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={imageFilter.contrast}
+              aria-label="Ajustar contraste"
+              onChange={e => setImageFilter({ ...imageFilter, contrast: Number(e.target.value) })}
+              style={{ width: '100%' }}
+            />
           </div>
           <div style={{ marginBottom: 10 }}>
             <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Preto e Branco <span>{imageFilter.grayscale}%</span>
             </label>
-            <input type="range" min="0" max="100" value={imageFilter.grayscale} 
-              onChange={e => setImageFilter({...imageFilter, grayscale: Number(e.target.value)})}
-              style={{ width: '100%' }} />
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={imageFilter.grayscale}
+              aria-label="Ajustar escala de cinza"
+              onChange={e => setImageFilter({ ...imageFilter, grayscale: Number(e.target.value) })}
+              style={{ width: '100%' }}
+            />
           </div>
-          <button className="btn btn-secondary" style={{ width: '100%', marginTop: 8 }}
-            onClick={() => setImageFilter({ brightness: 100, contrast: 100, grayscale: 0 })}>
+          <button
+            className="btn btn-secondary"
+            style={{ width: '100%', marginTop: 8 }}
+            onClick={() => setImageFilter({ brightness: 100, contrast: 100, grayscale: 0 })}
+          >
             Resetar
           </button>
         </div>
@@ -668,6 +726,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           ref={canvasRef}
           role="img"
           aria-label="Canvas de visualização da interface para anotações"
+          tabIndex={0}
           style={{
             width: '100%',
             height: '100%',
@@ -687,6 +746,20 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       ) : (
         <div
           className={`canvas-dropzone ${isDragOver ? 'drag-over' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label="Carregar imagem para anotação"
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = 'image/*'
+              input.onchange = (ev: any) => {
+                if (ev.target?.files?.[0]) onUploadImage(ev.target.files[0])
+              }
+              input.click()
+            }
+          }}
           onClick={() => {
             const input = document.createElement('input')
             input.type = 'file'
@@ -714,18 +787,18 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
       {/* Zoom Controls */}
       {imageLoaded && (
-        <div className="canvas-zoom-controls" aria-label="Controles de Zoom">
-          <button className="zoom-btn" onClick={handleZoomOut} title="Diminuir Zoom (-)">
+        <div className="canvas-zoom-controls" role="group" aria-label="Controles de Zoom">
+          <button className="zoom-btn" onClick={handleZoomOut} title="Diminuir Zoom (-)" aria-label="Diminuir zoom">
             <ZoomOut size={15} />
           </button>
-          <span className="zoom-text">{Math.round(zoom * 100)}%</span>
-          <button className="zoom-btn" onClick={handleZoomIn} title="Aumentar Zoom (+)">
+          <span className="zoom-text" aria-live="polite">{Math.round(zoom * 100)}%</span>
+          <button className="zoom-btn" onClick={handleZoomIn} title="Aumentar Zoom (+)" aria-label="Aumentar zoom">
             <ZoomIn size={15} />
           </button>
-          <button className="zoom-btn" onClick={handleFitZoom} title="Ajustar à Tela (0)">
+          <button className="zoom-btn" onClick={handleFitZoom} title="Ajustar à Tela (0)" aria-label="Ajustar zoom à tela">
             <Maximize2 size={15} />
           </button>
-          <button className="zoom-btn" onClick={handle100Zoom} title="Zoom Real 100%">
+          <button className="zoom-btn" onClick={handle100Zoom} title="Zoom Real 100%" aria-label="Definir zoom em 100%">
             <Scale size={15} />
           </button>
         </div>

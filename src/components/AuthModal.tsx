@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { X, Database, Key, Globe, User, CheckCircle2, AlertCircle } from 'lucide-react'
 import { UserProfile } from '../types'
 import { setSupabaseCustomConfig, isSupabaseConfigured, getSupabase } from '../lib/supabase'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -18,6 +19,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onUpdateUser,
   onSupabaseConnected
 }) => {
+  const modalRef = useFocusTrap<HTMLDivElement>({ isOpen, onClose })
   const [userName, setUserName] = useState(currentUser.name)
   const [userEmail, setUserEmail] = useState(currentUser.email)
   const [supabaseUrl, setSupabaseUrl] = useState(
@@ -59,91 +61,92 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw error
       }
 
-      setConnStatus('Conexão com Supabase estabelecida com sucesso!')
+      setConnStatus('Conectado com sucesso ao Supabase!')
       setIsError(false)
       onSupabaseConnected()
     } catch (err: any) {
+      console.error('Supabase connection test failed', err)
+      setConnStatus(`Falha na conexão: ${err.message || 'Verifique URL e Key'}`)
       setIsError(true)
-      setConnStatus('Erro na conexão: ' + (err.message || 'Verifique URL e Anon Key'))
     }
   }
 
-  const hasConfig = isSupabaseConfigured()
-
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+      <div
+        className="modal-card"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-modal-title"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '540px' }}
+      >
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Database size={20} className="text-primary" />
-            <h3 className="modal-title">Configurações & Conexão Supabase</h3>
+            <h3 id="auth-modal-title" className="modal-title">Perfil & Sincronização em Nuvem</h3>
           </div>
-          <button className="btn btn-secondary btn-icon-only" onClick={onClose}>
+          <button className="btn btn-secondary btn-icon-only" onClick={onClose} aria-label="Fechar modal">
             <X size={16} />
           </button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* User Profile Form */}
-          <form onSubmit={handleSaveProfile} className="thread-meta-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-              <User size={16} style={{ color: 'var(--primary)' }} />
-              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Identificação do Autor</span>
+          {/* User profile form */}
+          <form onSubmit={handleSaveProfile} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+              <User size={16} className="text-primary" />
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Identificação do Colaborador</h4>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div className="meta-field">
-                <label className="meta-label">Seu Nome / Cargo</label>
-                <input
-                  type="text"
-                  className="meta-input"
-                  value={userName}
-                  placeholder="Ex: Natanael Brentano (PO)"
-                  onChange={e => setUserName(e.target.value)}
-                />
-              </div>
-
-              <div className="meta-field">
-                <label className="meta-label">E-mail</label>
-                <input
-                  type="email"
-                  className="meta-input"
-                  value={userEmail}
-                  placeholder="seu.email@empresa.com"
-                  onChange={e => setUserEmail(e.target.value)}
-                />
-              </div>
+            <div className="meta-field" style={{ marginBottom: '10px' }}>
+              <label className="meta-label">Seu Nome / Apelido</label>
+              <input
+                type="text"
+                className="meta-input"
+                value={userName}
+                onChange={e => setUserName(e.target.value)}
+                placeholder="Ex: Ana Silva (Dev Frontend)"
+                required
+              />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-              <button type="submit" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}>
-                Salvar Identificação
+            <div className="meta-field" style={{ marginBottom: '12px' }}>
+              <label className="meta-label">Seu E-mail Corporativo</label>
+              <input
+                type="email"
+                className="meta-input"
+                value={userEmail}
+                onChange={e => setUserEmail(e.target.value)}
+                placeholder="ana.silva@empresa.com"
+                required
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="submit" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}>
+                Salvar Perfil
               </button>
             </div>
           </form>
 
-          {/* Supabase Config Form */}
-          <form onSubmit={handleSaveSupabaseConfig} className="thread-meta-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          {/* Supabase config form */}
+          <form onSubmit={handleSaveSupabaseConfig} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Database size={16} style={{ color: hasConfig ? '#10b981' : 'var(--text-muted)' }} />
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Conexão Supabase</span>
+                <Database size={16} className="text-primary" />
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Configuração Supabase (Opcional)</h4>
               </div>
-              <span
-                style={{
-                  fontSize: '0.74rem',
-                  padding: '2px 8px',
-                  borderRadius: '999px',
-                  background: hasConfig ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.15)',
-                  color: hasConfig ? '#34d399' : '#94a3b8'
-                }}
-              >
-                {hasConfig ? 'Configurado' : 'Modo Offline (LocalStorage)'}
-              </span>
+              {isSupabaseConfigured() && (
+                <span style={{ fontSize: '0.72rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={12} /> Configurado
+                </span>
+              )}
             </div>
 
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-              Insira as credenciais do seu projeto Supabase para sincronização em nuvem e limite de até 5 telas com comentários ilimitados.
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              Por padrão, seus descritivos ficam salvos com segurança localmente. Insira as credenciais do seu projeto Supabase para habilitar sincronização em nuvem e colaboração em tempo real.
             </p>
 
             <div className="meta-field" style={{ marginBottom: '10px' }}>
@@ -187,6 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   background: isError ? 'rgba(244,63,94,0.15)' : 'rgba(16,185,129,0.15)',
                   color: isError ? '#fb7185' : '#34d399'
                 }}
+                role="status"
               >
                 {isError ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />}
                 <span>{connStatus}</span>

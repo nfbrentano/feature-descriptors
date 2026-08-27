@@ -58,6 +58,20 @@ export function getRelativeCoords(
 }
 
 /**
+ * Converts normalized relative coordinates (0..1) to absolute pixel coordinates on image
+ */
+export function getAbsoluteCoords(
+  relX: number,
+  relY: number,
+  imageDimensions: { width: number; height: number }
+): { x: number; y: number } {
+  return {
+    x: Math.round(relX * imageDimensions.width),
+    y: Math.round(relY * imageDimensions.height)
+  }
+}
+
+/**
  * Main offscreen / canvas render function
  */
 export function drawCanvas({

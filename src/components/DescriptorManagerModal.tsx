@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { X, Plus, Trash2, Layers, Image as ImageIcon, Check, AlertCircle } from 'lucide-react'
 import { Descriptor } from '../types'
 import { MAX_DESCRIPTORS_LIMIT } from '../lib/storage'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface DescriptorManagerModalProps {
   isOpen: boolean
@@ -22,6 +23,7 @@ export const DescriptorManagerModal: React.FC<DescriptorManagerModalProps> = ({
   onCreateNewDescriptor,
   onDeleteDescriptor
 }) => {
+  const modalRef = useFocusTrap<HTMLDivElement>({ isOpen, onClose })
   const [newTitle, setNewTitle] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isCreating, setIsCreating] = useState(false)
@@ -41,15 +43,23 @@ export const DescriptorManagerModal: React.FC<DescriptorManagerModalProps> = ({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+      <div
+        className="modal-card"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="manager-modal-title"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '640px' }}
+      >
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={20} className="text-primary" />
-            <h3 className="modal-title">
+            <h3 id="manager-modal-title" className="modal-title">
               Minhas Telas / Descritivos ({descriptors.length}/{MAX_DESCRIPTORS_LIMIT})
             </h3>
           </div>
-          <button className="btn btn-secondary btn-icon-only" onClick={onClose}>
+          <button className="btn btn-secondary btn-icon-only" onClick={onClose} aria-label="Fechar gerenciador">
             <X size={16} />
           </button>
         </div>
@@ -69,6 +79,7 @@ export const DescriptorManagerModal: React.FC<DescriptorManagerModalProps> = ({
                 fontSize: '0.84rem',
                 color: 'var(--accent-amber)'
               }}
+              role="alert"
             >
               <AlertCircle size={18} />
               <span>
@@ -146,7 +157,17 @@ export const DescriptorManagerModal: React.FC<DescriptorManagerModalProps> = ({
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       borderColor: isActive ? 'var(--primary)' : undefined,
-                      background: isActive ? 'rgba(99, 102, 241, 0.12)' : undefined
+                      background: isActive ? 'rgba(99, 102, 241, 0.12)' : undefined,
+                      cursor: 'pointer'
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Selecionar tela ${d.title}`}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        onSelectDescriptor(d.id)
+                        onClose()
+                      }
                     }}
                     onClick={() => {
                       onSelectDescriptor(d.id)
@@ -211,6 +232,7 @@ export const DescriptorManagerModal: React.FC<DescriptorManagerModalProps> = ({
                           }
                         }}
                         title="Excluir descritivo"
+                        aria-label={`Excluir descritivo ${d.title}`}
                       >
                         <Trash2 size={14} />
                       </button>

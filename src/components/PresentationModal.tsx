@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { X, ChevronLeft, ChevronRight, Play, CheckCircle2, Sparkles, MessageSquare } from 'lucide-react'
 import { Descriptor, BBoxCoords, PointCoords } from '../types'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface PresentationModalProps {
   isOpen: boolean
@@ -13,6 +14,7 @@ export const PresentationModal: React.FC<PresentationModalProps> = ({
   onClose,
   descriptor
 }) => {
+  const modalRef = useFocusTrap<HTMLDivElement>({ isOpen, onClose })
   const [currentIndex, setCurrentIndex] = useState(0)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
@@ -24,17 +26,15 @@ export const PresentationModal: React.FC<PresentationModalProps> = ({
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === 'Space') {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
         setCurrentIndex(i => (i + 1 < annotations.length ? i + 1 : i))
       } else if (e.key === 'ArrowLeft') {
         setCurrentIndex(i => (i > 0 ? i - 1 : 0))
-      } else if (e.key === 'Escape') {
-        onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, annotations.length, onClose])
+  }, [isOpen, annotations.length])
 
   // Load image
   useEffect(() => {
@@ -59,143 +59,148 @@ export const PresentationModal: React.FC<PresentationModalProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Calculate scale to fit
-    const scale = Math.min(
-      canvas.width / img.naturalWidth,
-      canvas.height / img.naturalHeight,
-      1
-    )
+    const scale = Math.min(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight, 1)
     const offsetX = (canvas.width - img.naturalWidth * scale) / 2
     const offsetY = (canvas.height - img.naturalHeight * scale) / 2
 
-    // Draw base image
-    ctx.save()
-    ctx.translate(offsetX, offsetY)
-    ctx.scale(scale, scale)
-    ctx.drawImage(img, 0, 0)
+    // Draw background image dimmed
+    ctx.globalAlpha = 0.4
+    ctx.drawImage(img, offsetX, offsetY, img.naturalWidth * scale, img.naturalHeight * scale)
+    ctx.globalAlpha = 1.0
 
-    // Dim background overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
-    ctx.fillRect(0, 0, img.naturalWidth, img.naturalHeight)
-
-    // Highlight current annotation area (clear dimming)
+    // Highlight active annotation region
     if (currentAnn.type === 'bbox') {
       const b = currentAnn.coords as BBoxCoords
-      const bx = b.x * img.naturalWidth
-      const by = b.y * img.naturalHeight
-      const bw = b.w * img.naturalWidth
-      const bh = b.h * img.naturalHeight
+      const x = offsetX + b.x * img.naturalWidth * scale
+      const y = offsetY + b.y * img.naturalHeight * scale
+      const w = b.w * img.naturalWidth * scale
+      const h = b.h * img.naturalHeight * scale
 
-      // Clear the overlay to reveal the highlighted area
       ctx.save()
       ctx.beginPath()
-      ctx.rect(bx, by, bw, bh)
+      ctx.rect(x, y, w, h)
       ctx.clip()
-      ctx.drawImage(img, 0, 0)
+
+      // Redraw original sharp image inside clip
+      ctx.drawImage(img, offsetX, offsetY, img.naturalWidth * scale, img.naturalHeight * scale)
       ctx.restore()
 
-      // Draw border & glowing spotlight
+      // Draw glowing boundary
       ctx.strokeStyle = '#6366f1'
-      ctx.lineWidth = 3 / scale
-      ctx.strokeRect(bx, by, bw, bh)
+      ctx.lineWidth = 3
+      ctx.strokeRect(x, y, w, h)
 
-      // Label
+      // Draw Badge
       ctx.fillStyle = '#6366f1'
-      ctx.fillRect(bx, by - 30 / scale, 45 / scale, 24 / scale)
-      ctx.font = `bold ${14 / scale}px sans-serif`
+      ctx.fillRect(x, Math.max(0, y - 24), 32, 22)
       ctx.fillStyle = '#ffffff'
-      ctx.textAlign = 'center'
-      ctx.fillText(`A${currentIndex + 1}`, bx + 22 / scale, by - 12 / scale)
+      ctx.font = 'bold 12px sans-serif'
+      ctx.fillText(`A${currentIndex + 1}`, x + 6, Math.max(16, y - 8))
     } else if (currentAnn.type === 'point') {
       const pt = currentAnn.coords as PointCoords
-      const px = pt.x * img.naturalWidth
-      const py = pt.y * img.naturalHeight
-      const pr = 30 / scale
+      const x = offsetX + pt.x * img.naturalWidth * scale
+      const y = offsetY + pt.y * img.naturalHeight * scale
 
-      ctx.save()
+      // Draw pulsing center
       ctx.beginPath()
-      ctx.arc(px, py, pr, 0, Math.PI * 2)
-      ctx.clip()
-      ctx.drawImage(img, 0, 0)
-      ctx.restore()
-
-      ctx.strokeStyle = '#6366f1'
-      ctx.lineWidth = 3 / scale
-      ctx.beginPath()
-      ctx.arc(px, py, pr, 0, Math.PI * 2)
+      ctx.arc(x, y, 16, 0, Math.PI * 2)
+      ctx.fillStyle = '#6366f1'
+      ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 2
       ctx.stroke()
-    }
 
-    ctx.restore()
+      ctx.fillStyle = '#ffffff'
+      ctx.font = 'bold 12px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(`A${currentIndex + 1}`, x, y)
+    }
   }
 
   useEffect(() => {
-    if (isOpen) {
-      drawPresentation()
-    }
-  }, [isOpen, currentIndex, currentAnn])
+    drawPresentation()
+  }, [currentIndex, currentAnn])
 
   if (!isOpen || !descriptor) return null
 
   return (
-    <div className="modal-overlay" style={{ background: '#05070a', zIndex: 120 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh' }}>
-        {/* Presentation Header */}
-        <header
-          style={{
-            height: '60px',
-            padding: '0 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid var(--border-subtle)',
-            background: 'rgba(18, 22, 31, 0.95)'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-card"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="presentation-modal-title"
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '95vw',
+          maxWidth: '1400px',
+          height: '90vh',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Play size={20} className="text-primary" />
-            <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>Modo Apresentação: {descriptor.title}</span>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              (Item {currentIndex + 1} de {annotations.length})
-            </span>
+            <h3 id="presentation-modal-title" className="modal-title">Modo Apresentação: {descriptor.title}</h3>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              {annotations.length > 0 ? `${currentIndex + 1} de ${annotations.length}` : 'Sem anotações'}
+            </span>
+            <button className="btn btn-secondary btn-icon-only" onClick={onClose} aria-label="Fechar apresentação">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="modal-body" style={{ flex: 1, display: 'flex', gap: '20px', padding: '16px', overflow: 'hidden' }}>
+          {/* Canvas Presentation View */}
+          <div
+            style={{
+              flex: 1.5,
+              background: 'var(--bg-canvas)',
+              borderRadius: '8px',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden'
+            }}
+          >
+            <canvas ref={canvasRef} role="img" aria-label="Slide de apresentação com destaque da anotação" style={{ width: '100%', height: '100%' }} />
+
+            {/* Nav Arrows */}
             <button
               className="btn btn-secondary"
-              onClick={() => setCurrentIndex(i => Math.max(i - 1, 0))}
+              aria-label="Anotação anterior"
+              style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', borderRadius: '50%', width: 44, height: 44, padding: 0 }}
+              onClick={() => setCurrentIndex(i => (i > 0 ? i - 1 : 0))}
               disabled={currentIndex === 0}
             >
-              <ChevronLeft size={16} /> Anterior
+              <ChevronLeft size={24} />
             </button>
             <button
-              className="btn btn-primary"
-              onClick={() => setCurrentIndex(i => Math.min(i + 1, annotations.length - 1))}
-              disabled={currentIndex === annotations.length - 1}
+              className="btn btn-secondary"
+              aria-label="Próxima anotação"
+              style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', borderRadius: '50%', width: 44, height: 44, padding: 0 }}
+              onClick={() => setCurrentIndex(i => (i + 1 < annotations.length ? i + 1 : i))}
+              disabled={currentIndex >= annotations.length - 1}
             >
-              Próximo <ChevronRight size={16} />
+              <ChevronRight size={24} />
             </button>
-            <button className="btn btn-secondary btn-icon-only" onClick={onClose}>
-              <X size={18} />
-            </button>
-          </div>
-        </header>
-
-        {/* Presentation Main split */}
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* Spotlight Canvas */}
-          <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} />
           </div>
 
           {/* Details Sidebar */}
           {currentAnn && (
             <div
               style={{
-                width: '420px',
+                flex: 1,
                 background: 'var(--bg-panel)',
-                borderLeft: '1px solid var(--border-subtle)',
-                padding: '24px',
+                borderRadius: '8px',
+                padding: '20px',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '16px',
