@@ -125,7 +125,9 @@ function inline(text: string): string {
 }
 
 function tableCell(text: string): string {
-  return inline(text).replace(/\|/g, '\\|') || '—'
+  return inline(text)
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|') || '—'
 }
 
 function yamlString(text: string): string {
