@@ -8,6 +8,16 @@ const LOCAL_USER_KEY = 'feature_descriptors_current_user'
 
 export const MAX_DESCRIPTORS_LIMIT = 5
 
+const createSecureLocalUserId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `local-user-${crypto.randomUUID()}`
+  }
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+  return `local-user-${hex}`
+}
+
 export const getLocalUser = (): UserProfile => {
   const saved = localStorage.getItem(LOCAL_USER_KEY)
   if (saved) {
@@ -18,7 +28,7 @@ export const getLocalUser = (): UserProfile => {
     }
   }
   const defaultUser: UserProfile = {
-    id: 'local-user-' + Math.random().toString(36).substring(2, 9),
+    id: createSecureLocalUserId(),
     email: 'local@demo.local',
     name: 'Usuário Local'
   }
